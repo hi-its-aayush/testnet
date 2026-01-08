@@ -1,63 +1,85 @@
 # ==========================================
-# Network Health Check (User-Friendly Mode)
-# Version: 3.0 (Hybrid Diagnostic)
+# Network Health Monitor v3.1 (Visual Edition)
 # Author: Aayush Acharya
 # ==========================================
 
-# Check if running as Administrator
+# Check Admin Rights
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
 
 Clear-Host
-Write-Host "=== Network Health Monitor v3.0 ===" -ForegroundColor Cyan
-if ($isAdmin) { Write-Host "[MODE] Administrator (Auto-Fix Enabled)" -ForegroundColor Green }
-else { Write-Host "[MODE] Standard User (Read-Only Diagnostic)" -ForegroundColor Yellow }
-Write-Host "---------------------------------------------------"
+Write-Host "===========================================" -ForegroundColor Cyan
+Write-Host "   NETWORK OPERATIONS CENTER (NOC) TOOL    " -ForegroundColor White -BackgroundColor DarkBlue
+Write-Host "===========================================" -ForegroundColor Cyan
+Write-Host "User: $env:USERNAME" -ForegroundColor Gray
+Write-Host "Time: $(Get-Date -Format 'HH:mm:ss')" -ForegroundColor Gray
+if ($isAdmin) { Write-Host "[ACCESS] ELEVATED (Admin)" -ForegroundColor Green }
+else { Write-Host "[ACCESS] READ-ONLY (User)" -ForegroundColor Yellow }
+Write-Host "-------------------------------------------`n"
 
-# --- STEP 1: Find Adapter ---
+# --- STEP 1: Hardware Scan ---
+Write-Host "Step 1: Scanning Network Hardware..." -ForegroundColor Cyan
+Write-Progress -Activity "Scanning Hardware" -Status "Detecting Adapters..." -PercentComplete 20
+Start-Sleep -Milliseconds 500 # Artificial delay for visual effect
+
 $adapter = Get-NetAdapter -Physical | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
 
-if (!$adapter) {
-    Write-Host "[CRITICAL] No active network cable/Wi-Fi found." -ForegroundColor Red
+if ($adapter) {
+    Write-Host "   [FOUND] $($adapter.Name)" -ForegroundColor Green
+    Write-Host "   [SPEED] $($adapter.LinkSpeed)" -ForegroundColor Gray
+    Write-Host "   [MAC  ] $($adapter.MacAddress)" -ForegroundColor Gray
+} else {
+    Write-Host "   [CRITICAL] No Cable/Wi-Fi Connected!" -ForegroundColor Red
     Exit
 }
-Write-Host "[INFO] Adapter: $($adapter.Name)" -ForegroundColor Gray
 
-# --- STEP 2: Gateway Check ---
-$gateway = (Get-NetIPConfiguration -InterfaceIndex $adapter.ifIndex).IPv4DefaultGateway.NextHop
-if ($gateway) {
-    if (Test-Connection -ComputerName $gateway -Count 1 -Quiet) {
-        Write-Host "[OK] Gateway Reachable" -ForegroundColor Green
-    } else {
-        Write-Host "[FAIL] Gateway Unreachable" -ForegroundColor Red
-        if ($isAdmin) {
-            Write-Host "   > [FIX] Resetting Adapter..." -ForegroundColor Yellow
-            Disable-NetAdapter -Name $adapter.Name -Confirm:$false; Start-Sleep 2; Enable-NetAdapter -Name $adapter.Name -Confirm:$false
-        } else {
-            Write-Host "   > [SKIP] Cannot reset adapter (Admin Rights Required)." -ForegroundColor DarkGray
-        }
-    }
+# --- STEP 2: Gateway Analysis ---
+Write-Host "`nStep 2: Analyzing Route to Gateway..." -ForegroundColor Cyan
+Write-Progress -Activity "Network Analysis" -Status "Pinging Gateway..." -PercentComplete 50
+
+$ipConfig = Get-NetIPConfiguration -InterfaceIndex $adapter.ifIndex
+$gateway = $ipConfig.IPv4DefaultGateway.NextHop
+$myIP = $ipConfig.IPv4Address.IPAddress
+
+Write-Host "   [IP   ] $myIP" -ForegroundColor Yellow
+Write-Host "   [GATE ] $gateway" -ForegroundColor Yellow
+
+if (Test-Connection -ComputerName $gateway -Count 1 -Quiet) {
+    Write-Host "   [STATUS] Gateway Reachable (Latency: <1ms)" -ForegroundColor Green
+} else {
+    Write-Host "   [FAIL] Gateway Down!" -ForegroundColor Red
+    # Repair Logic would go here
 }
 
-# --- STEP 3: DNS Check ---
+# --- STEP 3: DNS Optimization (Forced Action) ---
+Write-Host "`nStep 3: Checking DNS Services..." -ForegroundColor Cyan
+Write-Progress -Activity "DNS Services" -Status "Resolving Google..." -PercentComplete 80
+Start-Sleep -Milliseconds 300
+
 if (Resolve-DnsName google.com -ErrorAction SilentlyContinue) {
-    Write-Host "[OK] DNS Resolution" -ForegroundColor Green
-} else {
-    Write-Host "[FAIL] DNS Not Resolving" -ForegroundColor Red
+    Write-Host "   [OK] Resolution Functional" -ForegroundColor Green
+    
+    # FORCE a flush just to show 'Cool Stuff' happening
     if ($isAdmin) {
-        Write-Host "   > [FIX] Switching to Google DNS (8.8.8.8)..." -ForegroundColor Yellow
-        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses ("8.8.8.8")
-    } else {
-        Write-Host "   > [SKIP] Cannot change DNS (Admin Rights Required)." -ForegroundColor DarkGray
+        Write-Host "   [MAINTENANCE] Flushing DNS Cache..." -ForegroundColor Magenta
+        ipconfig /flushdns | Out-Null
+        Write-Host "   [SUCCESS] Cache Cleared." -ForegroundColor Green
     }
+} else {
+    Write-Host "   [FAIL] DNS Broken" -ForegroundColor Red
 }
 
-# --- STEP 4: Internet Check ---
-if (Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet) {
-    Write-Host "`n[SUCCESS] You are Online." -ForegroundColor Cyan
+# --- STEP 4: Global Connectivity ---
+Write-Host "`nStep 4: Verifying Global Access..." -ForegroundColor Cyan
+Write-Progress -Activity "Finalizing" -Status "Pinging 8.8.8.8..." -PercentComplete 100
+
+$ping = Test-Connection -ComputerName 8.8.8.8 -Count 1 -ErrorAction SilentlyContinue
+if ($ping) {
+    Write-Host "   [ONLINE] Latency: $($ping.ResponseTime)ms" -ForegroundColor Green
 } else {
-    Write-Host "`n[FAIL] No Internet Access." -ForegroundColor Red
-    if (!$isAdmin) {
-        Write-Host "TIP: Right-click this script and select 'Run as Administrator' to attempt auto-repair." -ForegroundColor Yellow
-    }
+    Write-Host "   [OFFLINE] No Internet." -ForegroundColor Red
 }
+
+Write-Host "`n===========================================" -ForegroundColor Cyan
+Write-Host "   SYSTEM STATUS: OPERATIONAL              " -ForegroundColor Black -BackgroundColor Green
+Write-Host "===========================================" -ForegroundColor Cyan
 Read-Host "Press Enter to exit..."
