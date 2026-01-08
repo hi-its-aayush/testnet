@@ -10,4 +10,4 @@ A lightweight, automated CLI tool designed to detect, diagnose, and resolve comm
 Run this command in PowerShell to instantly diagnose and fix your network (requires internet to fetch, or download locally):
 
 ```powershell
-iwr [raw.githubusercontent.com/hi-its-aayush/testnet/main/NetFix.ps1](https://raw.githubusercontent.com/hi-its-aayush/testnet/main/NetFix.ps1) -usebasicparsing | iex
+iwr raw.githubusercontent.com/hi-its-aayush/testnet/main/NetFix.ps1 -usebasicparsing | iex
