@@ -1,7 +1,5 @@
 # ================================
-# Resolve-Internet
-# Author: Aayush
-# Requires: Admin
+# Resolve-Internet (Hardened - FIXED)
 # ================================
 
 Set-StrictMode -Version Latest
@@ -11,7 +9,7 @@ $ErrorActionPreference = "Stop"
 if (-not ([Security.Principal.WindowsPrincipal]
     [Security.Principal.WindowsIdentity]::GetCurrent()
 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "ERROR: Script must be run as Administrator." -ForegroundColor Red
+    Write-Host "ERROR: Run PowerShell as Administrator." -ForegroundColor Red
     exit 1
 }
 
@@ -19,9 +17,10 @@ if (-not ([Security.Principal.WindowsPrincipal]
 $LogFile = "$env:TEMP\Resolve-Internet.log"
 Start-Transcript -Path $LogFile -Append
 
-Write-Host "=== Resolve Internet Connectivity (Hardened) ===" -ForegroundColor Cyan
+Write-Host "=== Resolve Internet Connectivity ===" -ForegroundColor Cyan
 
 try {
+
     # ---- Detect active adapter ----
     $adapter = Get-NetAdapter | Where-Object Status -eq "Up" | Select-Object -First 1
     if (-not $adapter) { throw "No active network adapter found." }
@@ -30,7 +29,7 @@ try {
 
     # ---- Gateway check ----
     $gateway = (Get-NetIPConfiguration -InterfaceIndex $adapter.ifIndex).
-                IPv4DefaultGateway.NextHop
+        IPv4DefaultGateway.NextHop
 
     if ($gateway -and -not (Test-Connection $gateway -Count 2 -Quiet)) {
         Write-Host "Gateway unreachable. Resetting adapter..." -ForegroundColor Yellow
@@ -45,9 +44,9 @@ try {
     ipconfig /release | Out-Null
     ipconfig /renew | Out-Null
 
-    # ---- DNS validation ----
+    # ---- DNS test ----
     if (-not (Resolve-DnsName google.com -ErrorAction SilentlyContinue)) {
-        Write-Host "DNS failure detected. Resetting DNS..." -ForegroundColor Yellow
+        Write-Host "DNS issue detected. Resetting DNS..." -ForegroundColor Yellow
         ipconfig /flushdns | Out-Null
         Set-DnsClientServerAddress `
             -InterfaceIndex $adapter.ifIndex `
@@ -55,20 +54,21 @@ try {
     }
 
     # ---- Internet test ----
-    if (-not (Test-Connection 8.8.8.8 -Count 2 -Quiet)) {
-        Write-Host "Deep network reset required." -ForegroundColor Red
+    if (Test-Connection 8.8.8.8 -Count 2 -Quiet) {
+        Write-Host "Internet connectivity restored." -ForegroundColor Green
+    }
+    else {
+        Write-Host "Deep reset required." -ForegroundColor Red
         netsh winsock reset | Out-Null
         netsh int ip reset | Out-Null
         Write-Host "Reboot recommended." -ForegroundColor Yellow
-    } else {
-        Write-Host "Internet connectivity restored." -ForegroundColor Green
     }
+
 }
 catch {
-    Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
 }
 finally {
     Stop-Transcript
     Write-Host "Log saved to $LogFile" -ForegroundColor Cyan
 }
-
