@@ -1,97 +1,64 @@
 # ==========================================
-# Network Health Monitor v3.2
+# Network Health Monitor v4.0 (DHCP Enforcer)
 # Author: Aayush Acharya
 # ==========================================
 
-# Check Admin Rights
+# Check Admin Rights (REQUIRED for DHCP Reset)
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
 
 Clear-Host
-Write-Host "===========================================" -ForegroundColor Cyan
-Write-Host "   NETWORK OPERATIONS CENTER (NOC) TOOL    " -ForegroundColor White -BackgroundColor DarkBlue
-Write-Host "===========================================" -ForegroundColor Cyan
-Write-Host "User: $env:USERNAME" -ForegroundColor Gray
-Write-Host "Time: $(Get-Date -Format 'HH:mm:ss')" -ForegroundColor Gray
-if ($isAdmin) { Write-Host "[ACCESS] ELEVATED (Admin)" -ForegroundColor Green }
-else { Write-Host "[ACCESS] READ-ONLY (User)" -ForegroundColor Yellow }
-Write-Host "-------------------------------------------`n"
+Write-Host "=== NETWORK REPAIR TOOL v4.0 ===" -ForegroundColor Cyan
+if (!$isAdmin) { Write-Host "[WARNING] Run as Administrator to unlock repairs." -ForegroundColor Red }
 
-# --- STEP 1: Hardware Scan ---
-Write-Host "Step 1: Scanning Hardware..." -ForegroundColor Cyan
+# --- STEP 1: Find Adapter ---
 $adapter = Get-NetAdapter -Physical | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
 
-if ($adapter) {
-    Write-Host "   [FOUND] $($adapter.Name)" -ForegroundColor Green
-    Write-Host "   [SPEED] $($adapter.LinkSpeed)" -ForegroundColor Gray
+if (!$adapter) { Write-Host "[CRITICAL] No Cable/Wi-Fi Connected!" -ForegroundColor Red; Exit }
+Write-Host "[INFO] Adapter: $($adapter.Name)" -ForegroundColor Green
+
+# --- STEP 2: Connectivity Check ---
+Write-Host "Testing Connection..." -NoNewline
+if (Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet) {
+    Write-Host " [ONLINE]" -ForegroundColor Green
+    Write-Host "`n[SUCCESS] System Operational." -ForegroundColor Cyan
+    Exit # Stop if everything works
 } else {
-    Write-Host "   [CRITICAL] No Cable/Wi-Fi Connected!" -ForegroundColor Red
-    Exit
+    Write-Host " [OFFLINE]" -ForegroundColor Red
 }
 
-# --- STEP 2: Gateway Analysis (Fixed Null Error) ---
-Write-Host "`nStep 2: Analyzing Gateway..." -ForegroundColor Cyan
-$ipConfig = Get-NetIPConfiguration -InterfaceIndex $adapter.ifIndex
-$gateway = $ipConfig.IPv4DefaultGateway.NextHop
-
-if ([string]::IsNullOrWhiteSpace($gateway)) {
-    Write-Host "   [FAIL] No Gateway Address Found!" -ForegroundColor Red
-    $gatewayStatus = "Down"
-} else {
-    Write-Host "   [GATE ] $gateway" -ForegroundColor Yellow
-    if (Test-Connection -ComputerName $gateway -Count 1 -Quiet) {
-        Write-Host "   [STATUS] Gateway Reachable" -ForegroundColor Green
-        $gatewayStatus = "Up"
-    } else {
-        Write-Host "   [FAIL] Gateway Unreachable" -ForegroundColor Red
-        $gatewayStatus = "Down"
-    }
-}
-
-# --- REPAIR LOGIC 1: Gateway/Adapter Reset ---
-if ($gatewayStatus -eq "Down" -and $isAdmin) {
-    Write-Host "   [ACTION] Resetting Adapter Hardware..." -ForegroundColor Magenta
-    Disable-NetAdapter -Name $adapter.Name -Confirm:$false
-    Start-Sleep -Seconds 2
-    Enable-NetAdapter -Name $adapter.Name -Confirm:$false
-    Start-Sleep -Seconds 5
-    Write-Host "   [DONE] Adapter Reset Complete." -ForegroundColor Green
-}
-
-# --- STEP 3: DNS Check ---
-Write-Host "`nStep 3: Checking DNS Services..." -ForegroundColor Cyan
-$dnsWorking = Resolve-DnsName google.com -ErrorAction SilentlyContinue
-
-if ($dnsWorking) {
-    Write-Host "   [OK] Resolution Functional" -ForegroundColor Green
-} else {
-    Write-Host "   [FAIL] DNS Broken" -ForegroundColor Red
+# --- STEP 3: The "Nuclear" DHCP Reset ---
+if ($isAdmin) {
+    Write-Host "`n[ACTION] Detecting Bad Static Config..." -ForegroundColor Yellow
     
-    # --- REPAIR LOGIC 2: DNS Flush ---
-    if ($isAdmin) {
-        Write-Host "   [ACTION] Flushing DNS Cache..." -ForegroundColor Magenta
-        ipconfig /flushdns | Out-Null
-        Write-Host "   [ACTION] Forcing Google DNS (8.8.8.8)..." -ForegroundColor Magenta
-        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses ("8.8.8.8","1.1.1.1")
-        Write-Host "   [DONE] DNS Configuration Patched." -ForegroundColor Green
+    try {
+        # 1. Force IP to "Obtain Automatically" (DHCP)
+        Write-Host "   > Resetting IP to DHCP (Automatic)..." -NoNewline
+        Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -Dhcp Enabled -ErrorAction Stop
+        Write-Host " [DONE]" -ForegroundColor Green
+
+        # 2. Force DNS to "Obtain Automatically" (Clears bad statics)
+        Write-Host "   > Resetting DNS to DHCP (Automatic)..." -NoNewline
+        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ResetServerAddresses -ErrorAction Stop
+        Write-Host " [DONE]" -ForegroundColor Green
+
+        # 3. Renew the new Automatic Lease
+        Write-Host "   > Getting new IP Address..." -NoNewline
+        ipconfig /renew | Out-Null
+        Write-Host " [DONE]" -ForegroundColor Green
+        
+    } catch {
+        Write-Host "`n[ERROR] Could not reset adapter: $($_.Exception.Message)" -ForegroundColor Red
     }
+} else {
+    Write-Host "`n[SKIP] Cannot force DHCP Reset without Admin rights." -ForegroundColor DarkGray
 }
 
 # --- STEP 4: Final Verification ---
-Write-Host "`nStep 4: Verifying Internet Access..." -ForegroundColor Cyan
-Start-Sleep -Seconds 2 # Give repairs time to kick in
-
+Write-Host "`nVerifying Fix..." -NoNewline
 if (Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet) {
-    Write-Host "   [ONLINE] Connection Established." -ForegroundColor Green
-    
-    Write-Host "`n===========================================" -ForegroundColor Cyan
-    Write-Host "   SYSTEM STATUS: OPERATIONAL              " -ForegroundColor Black -BackgroundColor Green
-    Write-Host "===========================================" -ForegroundColor Cyan
+    Write-Host " [SUCCESS] Internet Restored!" -ForegroundColor Green -BackgroundColor Black
 } else {
-    Write-Host "   [OFFLINE] Repairs Failed or Cable Unplugged." -ForegroundColor Red
-    
-    Write-Host "`n===========================================" -ForegroundColor Cyan
-    Write-Host "   SYSTEM STATUS: CRITICAL FAILURE         " -ForegroundColor White -BackgroundColor Red
-    Write-Host "===========================================" -ForegroundColor Cyan
+    Write-Host " [FAILED] Still Offline. Reboot Router." -ForegroundColor Red
 }
 
 Read-Host "Press Enter to exit..."
