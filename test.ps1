@@ -1,71 +1,66 @@
 # ================================
-# Resolve-Internet (Hardened - PARSER SAFE)
+# Automated Internet Troubleshooter
+# Author: Aayush Acharya
+# Run as Administrator
 # ================================
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = "Stop"
+Write-Host "=== Internet Connectivity Troubleshooter ===" -ForegroundColor Cyan
 
-# ---- Admin check (FIXED) ----
-$IsAdmin = ([Security.Principal.WindowsPrincipal] `
-    [Security.Principal.WindowsIdentity]::GetCurrent()
-).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+# Get active network adapter
+$adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
 
-if (-not $IsAdmin) {
-    Write-Host "ERROR: Run PowerShell as Administrator." -ForegroundColor Red
-    exit 1
+if (!$adapter) {
+    Write-Host "No active network adapter found." -ForegroundColor Red
+    exit
 }
 
-# ---- Logging ----
-$LogFile = "$env:TEMP\Resolve-Internet.log"
-Start-Transcript -Path $LogFile -Append
+Write-Host "Active Adapter: $($adapter.Name)" -ForegroundColor Green
 
-Write-Host "=== Resolve Internet Connectivity ===" -ForegroundColor Cyan
+# Test default gateway
+$gateway = (Get-NetIPConfiguration -InterfaceIndex $adapter.ifIndex).IPv4DefaultGateway.NextHop
 
-try {
-
-    $adapter = Get-NetAdapter | Where-Object Status -eq "Up" | Select-Object -First 1
-    if (-not $adapter) { throw "No active network adapter found." }
-
-    Write-Host "Adapter: $($adapter.Name)" -ForegroundColor Green
-
-    $gateway = (Get-NetIPConfiguration -InterfaceIndex $adapter.ifIndex).
-        IPv4DefaultGateway.NextHop
-
-    if ($gateway -and -not (Test-Connection $gateway -Count 2 -Quiet)) {
-        Write-Host "Gateway unreachable. Resetting adapter..." -ForegroundColor Yellow
+if ($gateway) {
+    Write-Host "Testing gateway connectivity ($gateway)..."
+    if (Test-Connection -ComputerName $gateway -Count 2 -Quiet) {
+        Write-Host "Gateway reachable." -ForegroundColor Green
+    } else {
+        Write-Host "Gateway NOT reachable. Resetting adapter..." -ForegroundColor Yellow
         Disable-NetAdapter -Name $adapter.Name -Confirm:$false
-        Start-Sleep 5
+        Start-Sleep -Seconds 5
         Enable-NetAdapter -Name $adapter.Name -Confirm:$false
-        Start-Sleep 10
+        Start-Sleep -Seconds 10
     }
-
-    Write-Host "Renewing IP..."
-    ipconfig /release | Out-Null
-    ipconfig /renew | Out-Null
-
-    if (-not (Resolve-DnsName google.com -ErrorAction SilentlyContinue)) {
-        Write-Host "DNS issue detected. Resetting DNS..." -ForegroundColor Yellow
-        ipconfig /flushdns | Out-Null
-        Set-DnsClientServerAddress `
-            -InterfaceIndex $adapter.ifIndex `
-            -ServerAddresses ("8.8.8.8","8.8.4.4")
-    }
-
-    if (Test-Connection 8.8.8.8 -Count 2 -Quiet) {
-        Write-Host "Internet connectivity restored." -ForegroundColor Green
-    }
-    else {
-        Write-Host "Deep reset required." -ForegroundColor Red
-        netsh winsock reset | Out-Null
-        netsh int ip reset | Out-Null
-        Write-Host "Reboot recommended." -ForegroundColor Yellow
-    }
-
+} else {
+    Write-Host "No default gateway detected. Renewing IP..." -ForegroundColor Yellow
 }
-catch {
-    Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+
+# Renew IP
+Write-Host "Renewing IP address..."
+ipconfig /release | Out-Null
+ipconfig /renew | Out-Null
+
+# DNS test
+Write-Host "Testing DNS resolution..."
+if (Resolve-DnsName google.com -ErrorAction SilentlyContinue) {
+    Write-Host "DNS working correctly." -ForegroundColor Green
+} else {
+    Write-Host "DNS issue detected. Resetting DNS..." -ForegroundColor Yellow
+    ipconfig /flushdns | Out-Null
+    Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses ("8.8.8.8","8.8.4.4")
 }
-finally {
-    Stop-Transcript
-    Write-Host "Log saved to $LogFile" -ForegroundColor Cyan
+
+# Internet test
+Write-Host "Testing external internet access..."
+if (Test-Connection -ComputerName 8.8.8.8 -Count 2 -Quiet) {
+    Write-Host "Internet connectivity confirmed." -ForegroundColor Green
+} else {
+    Write-Host "Internet still unreachable. Performing deep reset..." -ForegroundColor Red
+
+    netsh winsock reset | Out-Null
+    netsh int ip reset | Out-Null
+
+    Write-Host "System reboot recommended to complete repairs." -ForegroundColor Yellow
 }
+
+Write-Host "=== Troubleshooting Completed ===" -ForegroundColor Cyan
+
