@@ -1,14 +1,16 @@
 # ================================
-# Resolve-Internet (Hardened - FIXED)
+# Resolve-Internet (Hardened - PARSER SAFE)
 # ================================
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# ---- Admin check ----
-if (-not ([Security.Principal.WindowsPrincipal]
+# ---- Admin check (FIXED) ----
+$IsAdmin = ([Security.Principal.WindowsPrincipal] `
     [Security.Principal.WindowsIdentity]::GetCurrent()
-).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (-not $IsAdmin) {
     Write-Host "ERROR: Run PowerShell as Administrator." -ForegroundColor Red
     exit 1
 }
@@ -21,13 +23,11 @@ Write-Host "=== Resolve Internet Connectivity ===" -ForegroundColor Cyan
 
 try {
 
-    # ---- Detect active adapter ----
     $adapter = Get-NetAdapter | Where-Object Status -eq "Up" | Select-Object -First 1
     if (-not $adapter) { throw "No active network adapter found." }
 
     Write-Host "Adapter: $($adapter.Name)" -ForegroundColor Green
 
-    # ---- Gateway check ----
     $gateway = (Get-NetIPConfiguration -InterfaceIndex $adapter.ifIndex).
         IPv4DefaultGateway.NextHop
 
@@ -39,12 +39,10 @@ try {
         Start-Sleep 10
     }
 
-    # ---- DHCP renew ----
-    Write-Host "Renewing IP configuration..."
+    Write-Host "Renewing IP..."
     ipconfig /release | Out-Null
     ipconfig /renew | Out-Null
 
-    # ---- DNS test ----
     if (-not (Resolve-DnsName google.com -ErrorAction SilentlyContinue)) {
         Write-Host "DNS issue detected. Resetting DNS..." -ForegroundColor Yellow
         ipconfig /flushdns | Out-Null
@@ -53,7 +51,6 @@ try {
             -ServerAddresses ("8.8.8.8","8.8.4.4")
     }
 
-    # ---- Internet test ----
     if (Test-Connection 8.8.8.8 -Count 2 -Quiet) {
         Write-Host "Internet connectivity restored." -ForegroundColor Green
     }
