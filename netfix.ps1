@@ -1,97 +1,63 @@
-
 # ==========================================
-# Automated Internet Connectivity Fixer
-# Version: 2.0 (Enterprise Grade)
+# Network Health Check (User-Friendly Mode)
+# Version: 3.0 (Hybrid Diagnostic)
 # Author: Aayush Acharya
 # ==========================================
 
-# --- STEP 1: Auto-Elevate to Administrator ---
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Warning "Script needs Admin rights to reset adapters."
-    Write-Host "Elevating now..." -ForegroundColor Yellow
-    Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
-    Exit
-}
+# Check if running as Administrator
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
 
 Clear-Host
-Write-Host "=== Internet Connectivity Troubleshooter v2.0 ===" -ForegroundColor Cyan
-Write-Host "Run by: $env:USERNAME on $(Get-Date)" -ForegroundColor DarkGray
+Write-Host "=== Network Health Monitor v3.0 ===" -ForegroundColor Cyan
+if ($isAdmin) { Write-Host "[MODE] Administrator (Auto-Fix Enabled)" -ForegroundColor Green }
+else { Write-Host "[MODE] Standard User (Read-Only Diagnostic)" -ForegroundColor Yellow }
 Write-Host "---------------------------------------------------"
 
-# --- STEP 2: Intelligent Adapter Selection ---
-# Filter allows only PHYSICAL adapters that are connected. Ignores Virtual/VPN adapters.
+# --- STEP 1: Find Adapter ---
 $adapter = Get-NetAdapter -Physical | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
 
 if (!$adapter) {
-    Write-Host "[CRITICAL] No active PHYSICAL network adapter found." -ForegroundColor Red
-    Write-Host "Check if your Wi-Fi button is off or cable is unplugged."
+    Write-Host "[CRITICAL] No active network cable/Wi-Fi found." -ForegroundColor Red
     Exit
 }
+Write-Host "[INFO] Adapter: $($adapter.Name)" -ForegroundColor Gray
 
-Write-Host "[INFO] Active Adapter Found: " -NoNewline; Write-Host "$($adapter.Name) ($($adapter.InterfaceDescription))" -ForegroundColor Green
-
-# --- STEP 3: Gateway & Connectivity Check ---
+# --- STEP 2: Gateway Check ---
 $gateway = (Get-NetIPConfiguration -InterfaceIndex $adapter.ifIndex).IPv4DefaultGateway.NextHop
-
 if ($gateway) {
-    Write-Host "[TEST] Pinging Gateway ($gateway)..." -NoNewline
-    if (Test-Connection -ComputerName $gateway -Count 2 -Quiet) {
-        Write-Host " [OK]" -ForegroundColor Green
+    if (Test-Connection -ComputerName $gateway -Count 1 -Quiet) {
+        Write-Host "[OK] Gateway Reachable" -ForegroundColor Green
     } else {
-        Write-Host " [FAILED]" -ForegroundColor Red
-        Write-Host "[ACTION] Gateway unreachable. Resetting Adapter hardware..." -ForegroundColor Yellow
-        
-        try {
-            Disable-NetAdapter -Name $adapter.Name -Confirm:$false -ErrorAction Stop
-            Write-Host "       > Adapter Disabled." -ForegroundColor DarkGray
-            Start-Sleep -Seconds 3
-            Enable-NetAdapter -Name $adapter.Name -Confirm:$false -ErrorAction Stop
-            Write-Host "       > Adapter Enabled. Waiting for handshake..." -ForegroundColor DarkGray
-            Start-Sleep -Seconds 10
-        } catch {
-            Write-Host "[ERROR] Failed to reset adapter: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "[FAIL] Gateway Unreachable" -ForegroundColor Red
+        if ($isAdmin) {
+            Write-Host "   > [FIX] Resetting Adapter..." -ForegroundColor Yellow
+            Disable-NetAdapter -Name $adapter.Name -Confirm:$false; Start-Sleep 2; Enable-NetAdapter -Name $adapter.Name -Confirm:$false
+        } else {
+            Write-Host "   > [SKIP] Cannot reset adapter (Admin Rights Required)." -ForegroundColor DarkGray
         }
     }
-} else {
-    Write-Host "[WARN] No Default Gateway detected." -ForegroundColor Yellow
 }
 
-# --- STEP 4: IP Stack Refresh ---
-Write-Host "[ACTION] Refreshing IP Configuration..." -ForegroundColor Cyan
-Invoke-Command { ipconfig /release } | Out-Null
-Invoke-Command { ipconfig /renew } | Out-Null
-Write-Host "       > IP Renewed." -ForegroundColor Green
-
-# --- STEP 5: DNS Health Check ---
-Write-Host "[TEST] Testing DNS Resolution..." -NoNewline
+# --- STEP 3: DNS Check ---
 if (Resolve-DnsName google.com -ErrorAction SilentlyContinue) {
-    Write-Host " [OK]" -ForegroundColor Green
+    Write-Host "[OK] DNS Resolution" -ForegroundColor Green
 } else {
-    Write-Host " [FAILED]" -ForegroundColor Red
-    Write-Host "[ACTION] DNS failing. Switching to Google Public DNS (8.8.8.8)..." -ForegroundColor Yellow
-    try {
-        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses ("8.8.8.8","1.1.1.1")
-        ipconfig /flushdns | Out-Null
-        Write-Host "       > DNS Updated & Flushed." -ForegroundColor Green
-    } catch {
-        Write-Host "[ERROR] Could not set DNS: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "[FAIL] DNS Not Resolving" -ForegroundColor Red
+    if ($isAdmin) {
+        Write-Host "   > [FIX] Switching to Google DNS (8.8.8.8)..." -ForegroundColor Yellow
+        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses ("8.8.8.8")
+    } else {
+        Write-Host "   > [SKIP] Cannot change DNS (Admin Rights Required)." -ForegroundColor DarkGray
     }
 }
 
-# --- STEP 6: Final Connectivity Verification ---
-Write-Host "[TEST] verifying Internet Access..." -NoNewline
-if (Test-Connection -ComputerName 8.8.8.8 -Count 2 -Quiet) {
-    Write-Host " [ONLINE]" -ForegroundColor Green
-    Write-Host "`n[SUCCESS] Internet connectivity restored." -ForegroundColor Cyan
+# --- STEP 4: Internet Check ---
+if (Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet) {
+    Write-Host "`n[SUCCESS] You are Online." -ForegroundColor Cyan
 } else {
-    Write-Host " [OFFLINE]" -ForegroundColor Red
-    Write-Host "`n[ACTION] Deep Network Reset required (Winsock/IP Reset)..." -ForegroundColor Magenta
-    
-    Start-Process -FilePath "netsh" -ArgumentList "winsock reset" -WindowStyle Hidden
-    Start-Process -FilePath "netsh" -ArgumentList "int ip reset" -WindowStyle Hidden
-    
-    Write-Host "[REQUIRED] A System Reboot is required to finish repairs." -ForegroundColor Red -BackgroundColor Yellow
+    Write-Host "`n[FAIL] No Internet Access." -ForegroundColor Red
+    if (!$isAdmin) {
+        Write-Host "TIP: Right-click this script and select 'Run as Administrator' to attempt auto-repair." -ForegroundColor Yellow
+    }
 }
-
-Write-Host "`n=== Troubleshooting Completed ===" -ForegroundColor Cyan
 Read-Host "Press Enter to exit..."
