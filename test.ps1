@@ -1,7 +1,8 @@
+
 # ================================
 # Automated Internet Troubleshooter
-# Author: Aayush Acharya
 # Run as Administrator
+# Author: Aayush Acharya
 # ================================
 
 Write-Host "=== Internet Connectivity Troubleshooter ===" -ForegroundColor Cyan
@@ -63,4 +64,3 @@ if (Test-Connection -ComputerName 8.8.8.8 -Count 2 -Quiet) {
 }
 
 Write-Host "=== Troubleshooting Completed ===" -ForegroundColor Cyan
-
