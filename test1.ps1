@@ -10,7 +10,14 @@ if ($null -eq $Adapter) {
     return
 }
 Write-Host "[OK] Using Adapter: $($Adapter.Name) ($($Adapter.InterfaceDescription))" -ForegroundColor Green
-
+# 1.1. Check for APIPA (DHCP Failure)
+$IPInfo = Get-NetIPAddress -InterfaceIndex $Adapter.ifIndex -AddressFamily IPv4
+foreach ($Address in $IPInfo.IPAddress) {
+    if ($Address -like "169.254.*") {
+        Write-Host "[CRITICAL] APIPA Address Detected ($Address)." -ForegroundColor Red
+        Write-Host "Action: Your computer cannot reach the DHCP server. Restart your router or check the DHCP service." -ForegroundColor Yellow
+    }
+}
 # 2. Get Gateway IP
 $Gateway = (Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Select-Object -ExpandProperty NextHop -ErrorAction SilentlyContinue)
 if ($null -eq $Gateway) {
