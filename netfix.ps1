@@ -1,64 +1,42 @@
-# ==========================================
-# Network Health Monitor v4.0 (DHCP Enforcer)
+# Connectivity Investigator v1.0
 # Author: Aayush Acharya
-# ==========================================
-
-# Check Admin Rights (REQUIRED for DHCP Reset)
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
-
 Clear-Host
-Write-Host "=== NETWORK REPAIR TOOL v4.0 ===" -ForegroundColor Cyan
-if (!$isAdmin) { Write-Host "[WARNING] Run as Administrator to unlock repairs." -ForegroundColor Red }
+Write-Host "--- Starting Network Diagnostic ---" -ForegroundColor Cyan
 
-# --- STEP 1: Find Adapter ---
-$adapter = Get-NetAdapter -Physical | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
-
-if (!$adapter) { Write-Host "[CRITICAL] No Cable/Wi-Fi Connected!" -ForegroundColor Red; Exit }
-Write-Host "[INFO] Adapter: $($adapter.Name)" -ForegroundColor Green
-
-# --- STEP 2: Connectivity Check ---
-Write-Host "Testing Connection..." -NoNewline
-if (Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet) {
-    Write-Host " [ONLINE]" -ForegroundColor Green
-    Write-Host "`n[SUCCESS] System Operational." -ForegroundColor Cyan
-    Exit # Stop if everything works
-} else {
-    Write-Host " [OFFLINE]" -ForegroundColor Red
+# 1. Identify Local Adapter Status
+$Adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
+if ($null -eq $Adapter) {
+    Write-Host "[FAIL] No active network adapters found. Check your cable or Wi-Fi switch." -ForegroundColor Red
+    return
 }
+Write-Host "[OK] Using Adapter: $($Adapter.Name) ($($Adapter.InterfaceDescription))" -ForegroundColor Green
 
-# --- STEP 3: The "Nuclear" DHCP Reset ---
-if ($isAdmin) {
-    Write-Host "`n[ACTION] Detecting Bad Static Config..." -ForegroundColor Yellow
-    
-    try {
-        # 1. Force IP to "Obtain Automatically" (DHCP)
-        Write-Host "   > Resetting IP to DHCP (Automatic)..." -NoNewline
-        Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -Dhcp Enabled -ErrorAction Stop
-        Write-Host " [DONE]" -ForegroundColor Green
-
-        # 2. Force DNS to "Obtain Automatically" (Clears bad statics)
-        Write-Host "   > Resetting DNS to DHCP (Automatic)..." -NoNewline
-        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ResetServerAddresses -ErrorAction Stop
-        Write-Host " [DONE]" -ForegroundColor Green
-
-        # 3. Renew the new Automatic Lease
-        Write-Host "   > Getting new IP Address..." -NoNewline
-        ipconfig /renew | Out-Null
-        Write-Host " [DONE]" -ForegroundColor Green
-        
-    } catch {
-        Write-Host "`n[ERROR] Could not reset adapter: $($_.Exception.Message)" -ForegroundColor Red
+# 2. Get Gateway IP
+$Gateway = (Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Select-Object -ExpandProperty NextHop -ErrorAction SilentlyContinue)
+if ($null -eq $Gateway) {
+    Write-Host "[FAIL] No Default Gateway found. You are likely not connected to a router." -ForegroundColor Red
+} else {
+    Write-Host "[DEBUG] Testing Gateway: $Gateway"
+    if (Test-Connection -ComputerName $Gateway -Count 1 -Quiet) {
+        Write-Host "[OK] Local Router (Gateway) is reachable." -ForegroundColor Green
+    } else {
+        Write-Host "[FAIL] Gateway is not responding. Check your router power/connection." -ForegroundColor Red
     }
-} else {
-    Write-Host "`n[SKIP] Cannot force DHCP Reset without Admin rights." -ForegroundColor DarkGray
 }
 
-# --- STEP 4: Final Verification ---
-Write-Host "`nVerifying Fix..." -NoNewline
+# 3. Test External IP Connectivity (The "Outside World")
 if (Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet) {
-    Write-Host " [SUCCESS] Internet Restored!" -ForegroundColor Green -BackgroundColor Black
+    Write-Host "[OK] Internet IP access (8.8.8.8) is working." -ForegroundColor Green
 } else {
-    Write-Host " [FAILED] Still Offline. Reboot Router." -ForegroundColor Red
+    Write-Host "[FAIL] No internet access via IP. ISP or WAN link might be down." -ForegroundColor Red
 }
 
-Read-Host "Press Enter to exit..."
+# 4. Test DNS Resolution
+try {
+    $DNS = Resolve-DnsName -Name google.com -ErrorAction Stop
+    Write-Host "[OK] DNS Resolution is working (Resolved to $($DNS.IPAddress))." -ForegroundColor Green
+} catch {
+    Write-Host "[FAIL] DNS Resolution failed. You have a DNS configuration issue." -ForegroundColor Red
+}
+
+Write-Host "`n--- Diagnostic Complete ---" -ForegroundColor Cyan
