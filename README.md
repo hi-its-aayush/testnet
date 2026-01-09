@@ -29,5 +29,3 @@ README.md: Project documentation and usage instructions.
 
 👤 Author
 Aayush Systems Engineering Student | Aspiring Systems Administrator
-\
-Interview Talk Track: You can tell Rohit at Akkodis: "I've built a diagnostic toolkit on my GitHub. I actually use a one-liner to pull it down to any machine for immediate troubleshooting.
