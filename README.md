@@ -1,2 +1,12 @@
-🌐 Network Connectivity InvestigatorA high-performance diagnostic engine for rapid network troubleshooting.Network Connectivity Investigator is a streamlined PowerShell utility designed to isolate network failures systematically. By following the OSI Layer model, it identifies whether a bottleneck exists at the hardware level, local link, or global DNS resolution.🚀 Quick Start (One-Liner)Run the diagnostic immediately without downloading any files. Open PowerShell and paste the following:PowerShellirm https://raw.githubusercontent.com/hi-its-aayush/testnet/main/test1.ps1 | iex
-[!NOTE]irm (Invoke-RestMethod) fetches the script source, and iex (Invoke-Expression) executes it directly in your current session.🛠 Core CapabilitiesFeatureFunctionAdapter HealthReal-time verification of local hardware "Up" status.APIPA DetectionIdentifies 169.254.x.x flags (DHCP exhaustion/failure).Gateway AuditPings the default gateway to confirm local link integrity.WAN ValidationDirect-to-IP (8.8.8.8) testing to bypass DNS interference.DNS ResolutionValidates the integrity of the name-to-IP resolution pipeline.🔍 Diagnostic LogicThe script executes a sequential 5-point check:L1/L2: Physical Adapter check.L3: IP Assignment check (APIPA vs. DHCP).Gateway: Local Router reachability.Internet: External ICMP response.DNS: FQDN Resolution.📂 Project Structuretest1.ps1 - The core diagnostic engine.README.md - Documentation and implementation guide.👤 AuthorAayushSystems Engineering Student | Aspiring Systems Administrator
+# 🌐 Network Connectivity Investigator
+![Status](https://img.shields.io/badge/Status-Active-success) ![Platform](https://img.shields.io/badge/Platform-Windows%20PowerShell-blue)
+
+**A diagnostic engine for rapid network troubleshooting.**
+
+This tool follows the **OSI Layer model** to isolate network failures by testing the local adapter, default gateway, external IP connectivity, and DNS resolution. It specifically detects **APIPA (169.254.x.x)** addresses, identifying DHCP failures immediately.
+
+## 🚀 Quick Run (One-Liner)
+*Run this diagnostic directly in your terminal. No download required.*
+
+```powershell
+irm https://raw.githubusercontent.com/hi-its-aayush/testnet/main/test1.ps1 | iex
